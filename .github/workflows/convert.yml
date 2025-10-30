@@ -1,11 +1,37 @@
+name: Auto Convert JioTV Playlist to M3U8 Files
+
+on:
+  schedule:
+    - cron: "*/30 * * * *"   # Runs every 30 minutes
+  workflow_dispatch:          # Allow manual run
+
+jobs:
+  convert:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install FFmpeg & curl
+        run: sudo apt install -y ffmpeg curl
+
+      - name: Fetch latest playlist from RJMBTS/Aupl
+        run: |
+          mkdir -p playlist
+          curl -L -o playlist/input.m3u "https://raw.githubusercontent.com/RJMBTS/Aupl/refs/heads/main/Master.m3u"
+          echo "✅ Fetched Master.m3u from RJMBTS/Aupl"
+
       - name: Convert each channel to M3U8
         run: |
-          set +e  # allow errors without stopping
-          mkdir -p output
+          set +e  # don't stop on error
+          mkdir -p output logs
           USER_AGENT="plaYtv/7.1.3 (Linux;Android 13) ygx/69.1 ExoPlayerLib/824.0"
           MASTER_FILE="output/jaupl.m3u"
+          FAILED_FILE="logs/failed.txt"
 
           echo "#EXTM3U" > "$MASTER_FILE"
+          echo "" > "$FAILED_FILE"
 
           while IFS= read -r line; do
             if [[ $line == http* ]]; then
@@ -28,9 +54,21 @@
                 echo "https://<YOUR-VERCEL-DOMAIN>/output/${CHANNEL}.m3u8" >> "$MASTER_FILE"
                 echo "✅ $CHANNEL converted successfully"
               else
-                echo "⚠️ Skipped $CHANNEL (conversion error)"
+                echo "⚠️ Failed: $CHANNEL"
+                echo "$CHANNEL | $URL" >> "$FAILED_FILE"
               fi
             fi
           done < playlist/input.m3u
 
           echo "✅ Created jaupl.m3u master playlist"
+          echo "📄 Failed channels saved to logs/failed.txt"
+
+      - name: Commit and push generated files
+        run: |
+          git config --global user.email "actions@github.com"
+          git config --global user.name "GitHub Actions"
+          git add output/*.m3u8 output/jaupl.m3u logs/failed.txt
+          git commit -m "Auto-update jaupl.m3u ($(date))" || echo "No new changes"
+          git push
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
