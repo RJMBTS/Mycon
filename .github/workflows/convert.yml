@@ -1,37 +1,32 @@
-name: Auto Convert JioTV Playlist to M3U8 Files
+name: Auto Convert JioTV Playlist
 
 on:
   schedule:
-    - cron: "*/30 * * * *"   # Runs every 30 minutes
-  workflow_dispatch:          # Allow manual run
+    - cron: "0 */6 * * *"   # Every 6 hours
+  workflow_dispatch:        # Allow manual run
 
 jobs:
   convert:
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Install FFmpeg & curl
-        run: sudo apt install -y ffmpeg curl
+      - name: Setup FFmpeg
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
 
-      - name: Fetch latest playlist from RJMBTS/Aupl
+      - name: Download latest Master.m3u
         run: |
-          mkdir -p playlist
+          mkdir -p playlist output
           curl -L -o playlist/input.m3u "https://raw.githubusercontent.com/RJMBTS/Aupl/refs/heads/main/Master.m3u"
-          echo "✅ Fetched Master.m3u from RJMBTS/Aupl"
+          cp playlist/input.m3u output/jaupl.m3u
 
-      - name: Convert each channel to M3U8
+      - name: Convert channels to .m3u8
         run: |
-          set +e  # don't stop on error
-          mkdir -p output logs
           USER_AGENT="plaYtv/7.1.3 (Linux;Android 13) ygx/69.1 ExoPlayerLib/824.0"
           MASTER_FILE="output/jaupl.m3u"
-          FAILED_FILE="logs/failed.txt"
 
           echo "#EXTM3U" > "$MASTER_FILE"
-          echo "" > "$FAILED_FILE"
 
           while IFS= read -r line; do
             if [[ $line == http* ]]; then
@@ -39,42 +34,29 @@ jobs:
               COOKIE=$(echo "$line" | grep -oP 'cookie=\K[^|]+')
               KEY_PAIR=$(echo "$line" | grep -oP 'key=\K[^|]+')
               CHANNEL=$(basename "$(dirname "$URL")")
+              CLEAN_NAME=$(echo "$CHANNEL" | sed 's/_BTS//')
 
-              echo "🎬 Processing: $CHANNEL"
-              OUTPUT_FILE="output/${CHANNEL}.m3u8"
+              echo "🎬 Processing: $CLEAN_NAME"
+              OUTPUT_FILE="output/${CLEAN_NAME}.m3u8"
 
               ffmpeg -headers "user-agent: $USER_AGENT" \
                      -headers "cookie: $COOKIE" \
                      -decryption_key $(echo $KEY_PAIR | cut -d':' -f2) \
                      -i "$URL" \
-                     -c copy -f hls "$OUTPUT_FILE"
+                     -c copy -f hls "$OUTPUT_FILE" || echo "⚠️ Skipped $CLEAN_NAME (conversion error)"
 
-              if [ $? -eq 0 ]; then
-                echo "#EXTINF:-1,${CHANNEL}" >> "$MASTER_FILE"
-                echo "https://<YOUR-VERCEL-DOMAIN>/output/${CHANNEL}.m3u8" >> "$MASTER_FILE"
-                echo "✅ $CHANNEL converted successfully"
-              else
-                TS=$(date '+%Y-%m-%d %H:%M:%S')
-                echo "⚠️ Failed: $CHANNEL"
-                echo "[$TS] $CHANNEL | $URL" >> "$FAILED_FILE"
-              fi
+              echo "#EXTINF:-1,${CLEAN_NAME}" >> "$MASTER_FILE"
+              echo "https://jiostar.vercel.app/${CLEAN_NAME}.m3u8" >> "$MASTER_FILE"
             fi
           done < playlist/input.m3u
 
           echo "✅ Created jaupl.m3u master playlist"
-          echo "📄 Failed channels saved to logs/failed.txt"
 
-      - name: Commit and push generated files
+      - name: Commit and push changes
         run: |
-          git config --global user.email "actions@github.com"
           git config --global user.name "GitHub Actions"
+          git config --global user.email "actions@github.com"
+          git add output/*.m3u8 output/jaupl.m3u || echo "No files to add"
+          git commit -m "Auto update converted m3u8 files [skip ci]" || echo "No changes to commit"
+          git push
 
-          # Only add files if they exist
-          git add -f output/jaupl.m3u 2>/dev/null || true
-          git add -f logs/failed.txt 2>/dev/null || true
-          find output -name "*.m3u8" -type f -exec git add -f {} \; 2>/dev/null || true
-
-          git commit -m "Auto-update jaupl.m3u ($(date))" || echo "No new changes"
-          git push || echo "⚠️ Push skipped (no changes)"
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
