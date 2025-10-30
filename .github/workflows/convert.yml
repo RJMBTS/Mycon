@@ -1,0 +1,34 @@
+name: Convert Disney Channel Stream to M3U8
+on:
+  workflow_dispatch:  # allows manual trigger from GitHub UI
+
+jobs:
+  convert:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install FFmpeg
+        run: sudo apt install -y ffmpeg
+
+      - name: Convert DASH (.mpd) to HLS (.m3u8)
+        run: |
+          ffmpeg -headers "user-agent: plaYtv/7.1.3 (Linux;Android 13) ygx/69.1 ExoPlayerLib/824.0" \
+                 -headers "cookie: __hdnea__=st=1761785091~exp=1761871491~acl=/*~hmac=dab94a397cc6b1d9e4a9628796fc18c620214b67f151bcf8f143f12069072f91" \
+                 -decryption_key 3dca7917d8cf9bb7095dc72b48bdcd3c \
+                 -i "https://jiotvpllive.cdn.jio.com/bpk-tv/Disney_Channel_BTS/output/index.mpd" \
+                 -c copy -f hls disney_channel.m3u8
+
+      - name: Commit and push generated file
+        run: |
+          git config --global user.email "actions@github.com"
+          git config --global user.name "GitHub Actions"
+          mkdir -p output
+          mv disney_channel.m3u8 output/
+          git add output/disney_channel.m3u8
+          git commit -m "Auto-update: Disney Channel M3U8"
+          git push
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
