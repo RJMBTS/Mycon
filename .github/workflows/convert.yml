@@ -1,6 +1,9 @@
-name: Convert Disney Channel Stream to M3U8
+name: Auto Convert JioTV Playlist to M3U8 Files
+
 on:
-  workflow_dispatch:  # allows manual trigger from GitHub UI
+  schedule:
+    - cron: "*/30 * * * *"   # Runs every 30 minutes
+  workflow_dispatch:          # Allow manual run
 
 jobs:
   convert:
@@ -10,25 +13,52 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Install FFmpeg
-        run: sudo apt install -y ffmpeg
+      - name: Install FFmpeg & curl
+        run: sudo apt install -y ffmpeg curl
 
-      - name: Convert DASH (.mpd) to HLS (.m3u8)
+      - name: Fetch latest playlist from RJMBTS/Aupl
         run: |
-          ffmpeg -headers "user-agent: plaYtv/7.1.3 (Linux;Android 13) ygx/69.1 ExoPlayerLib/824.0" \
-                 -headers "cookie: __hdnea__=st=1761785091~exp=1761871491~acl=/*~hmac=dab94a397cc6b1d9e4a9628796fc18c620214b67f151bcf8f143f12069072f91" \
-                 -decryption_key 3dca7917d8cf9bb7095dc72b48bdcd3c \
-                 -i "https://jiotvpllive.cdn.jio.com/bpk-tv/Disney_Channel_BTS/output/index.mpd" \
-                 -c copy -f hls disney_channel.m3u8
+          mkdir -p playlist
+          curl -L -o playlist/input.m3u "https://raw.githubusercontent.com/RJMBTS/Aupl/refs/heads/main/Master.m3u"
+          echo "✅ Fetched Master.m3u from RJMBTS/Aupl"
 
-      - name: Commit and push generated file
+      - name: Convert each channel to M3U8
+        run: |
+          mkdir -p output
+          USER_AGENT="plaYtv/7.1.3 (Linux;Android 13) ygx/69.1 ExoPlayerLib/824.0"
+          MASTER_FILE="output/jaupl.m3u"
+
+          echo "#EXTM3U" > "$MASTER_FILE"
+
+          while IFS= read -r line; do
+            if [[ $line == http* ]]; then
+              URL=$(echo "$line" | cut -d'|' -f1)
+              COOKIE=$(echo "$line" | grep -oP 'cookie=\K[^|]+')
+              KEY_PAIR=$(echo "$line" | grep -oP 'key=\K[^|]+')
+              CHANNEL=$(basename "$(dirname "$URL")")
+
+              echo "🎬 Processing: $CHANNEL"
+              OUTPUT_FILE="output/${CHANNEL}.m3u8"
+
+              ffmpeg -headers "user-agent: $USER_AGENT" \
+                     -headers "cookie: $COOKIE" \
+                     -decryption_key $(echo $KEY_PAIR | cut -d':' -f2) \
+                     -i "$URL" \
+                     -c copy -f hls "$OUTPUT_FILE" || echo "⚠️ Skipped $CHANNEL (conversion error)"
+
+              echo "#EXTINF:-1,${CHANNEL}" >> "$MASTER_FILE"
+              echo "https://<YOUR-VERCEL-DOMAIN>/output/${CHANNEL}.m3u8" >> "$MASTER_FILE"
+            fi
+          done < playlist/input.m3u
+
+          echo "✅ Created jaupl.m3u master playlist"
+
+      - name: Commit and push generated files
         run: |
           git config --global user.email "actions@github.com"
           git config --global user.name "GitHub Actions"
-          mkdir -p output
-          mv disney_channel.m3u8 output/
-          git add output/disney_channel.m3u8
-          git commit -m "Auto-update: Disney Channel M3U8"
+          git add output/*.m3u8 output/jaupl.m3u
+          git commit -m "Auto-update jaupl.m3u ($(date))" || echo "No new changes"
           git push
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
