@@ -60,10 +60,15 @@ jobs:
           echo "✅ Created jaupl.m3u master playlist"
           set -e
 
-      - name: Commit and push changes
-        run: |
-          git config --global user.name "GitHub Actions"
-          git config --global user.email "actions@github.com"
-          git add output/*.m3u8 output/jaupl.m3u || echo "No files to add"
-          git commit -m "Auto update converted m3u8 files [skip ci]" || echo "No changes to commit"
-          git push
+          - name: Commit and push changes
+            env:
+            GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+           run: |
+            git config user.name "GitHub Actions"
+            git config user.email "actions@github.com"
+
+            git add output/*.m3u8 output/jaupl.m3u || echo "No .m3u8 files found"
+            git add playlist/input.m3u || echo "No playlist updates"
+            git commit -m "Auto update converted m3u8 files [skip ci]" || echo "No changes to commit"
+
+            git push https://x-access-token:${GITHUB_TOKEN}@github.com/${{ github.repository }}.git HEAD:main
