@@ -1,9 +1,9 @@
-name: Auto Convert Selected JioTV Channels
+name: Mycon Verse
 
 on:
   schedule:
     - cron: "0 */6 * * *"   # every 6 hours
-  workflow_dispatch:         # can also be triggered manually
+  workflow_dispatch:         # manual trigger allowed
 
 jobs:
   convert:
@@ -28,13 +28,13 @@ jobs:
           set +e
           USER_AGENT='plaYtv/7.1.3 (Linux;Android 13) ygx/69.1 ExoPlayerLib/824.0'
           MASTER_FILE="output/jaupl.m3u"
+
           echo "#EXTM3U" > "$MASTER_FILE"
 
-          # Channels to convert
-          CHANNELS=("Zee_Telugu" "Zee_Cinemalu" "Maa_HD" "Maa_Movies" "Maa_Music")
+          CHANNELS=("Zee_Telugu" "Zee_Cinemalu" "Maa_HD" "Maa_Movies" "Maa_Music" "ZEE_TELUGU_HD" "ZEE_CINEMALU_HD")
 
-          # Clear previous outputs
-          rm -f output/*.m3u8
+          mkdir -p output
+          rm -f output/*.m3u8 || true
 
           while IFS= read -r line; do
             if [[ $line == http* ]]; then
@@ -65,7 +65,7 @@ jobs:
                 if [ $? -eq 0 ] && [ -s "$OUTPUT_FILE" ]; then
                   echo "✅ Success: $CLEAN_NAME"
                   echo "#EXTINF:-1,${CLEAN_NAME}" >> "$MASTER_FILE"
-                  echo "https://jiostar.vercel.app/${CLEAN_NAME}.m3u8" >> "$MASTER_FILE"
+                  echo "https://nrtv-one.vercel.app/output/${CLEAN_NAME}.m3u8" >> "$MASTER_FILE"
                 else
                   echo "⚠️ Skipped $CLEAN_NAME (conversion error)"
                   rm -f "$OUTPUT_FILE"
@@ -84,5 +84,5 @@ jobs:
           git config user.name "GitHub Actions"
           git config user.email "actions@github.com"
           git add output/*.m3u8 output/jaupl.m3u || echo "No files to add"
-          git commit -m "Auto-updated selected JioTV channels [skip ci]" || echo "No changes to commit"
+          git commit -m "Mycon Verse auto-update [skip ci]" || echo "No changes to commit"
           git push https://x-access-token:${GITHUB_TOKEN}@github.com/${{ github.repository }}.git HEAD:main
