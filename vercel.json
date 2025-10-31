@@ -1,11 +1,17 @@
 {
   "version": 2,
+  "name": "Mycon Verse",
   "public": true,
   "builds": [
-    { "src": "output/**", "use": "@vercel/static" }
+    {
+      "src": "output/**",
+      "use": "@vercel/static"
+    }
   ],
   "routes": [
-    { "src": "/(.*)\\.m3u8", "dest": "/output/$1.m3u8" },
-    { "src": "/(.*)\\.m3u", "dest": "/output/$1.m3u" }
+    {
+      "src": "/(.*)",
+      "dest": "/output/$1"
+    }
   ]
 }
