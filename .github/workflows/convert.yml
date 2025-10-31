@@ -1,9 +1,9 @@
-name: Mycon Verse (Debug)
+name: Mycon Verse Auto Convert (Final Fix)
 
 on:
   workflow_dispatch:
   schedule:
-    - cron: "0 */6 * * *"   # every 6 hours
+    - cron: "0 */6 * * *"
 
 jobs:
   convert:
@@ -24,9 +24,9 @@ jobs:
         run: |
           mkdir -p playlist output
           curl -L -o playlist/input.m3u "https://raw.githubusercontent.com/RJMBTS/Aupl/refs/heads/main/Master.m3u"
-          echo "✅ Downloaded latest Master.m3u"
+          echo "✅ Downloaded Master.m3u"
 
-      - name: Convert Telugu Channels (Debug)
+      - name: Convert Telugu Channels (Full Fix)
         run: |
           set +e
           USER_AGENT='plaYtv/7.1.3 (Linux;Android 13) ygx/69.1 ExoPlayerLib/824.0'
@@ -46,9 +46,17 @@ jobs:
             CH_NAME="${CHANNELS[$ID]}"
             echo "🎬 Checking: $CH_NAME ($ID)"
 
+            # extract URL
             URL=$(grep -o "https.*${ID}/output/index\.mpd[^ ]*" playlist/input.m3u | head -n 1)
-            COOKIE=$(grep -A4 "${ID}" playlist/input.m3u | grep -oP 'cookie":"\K[^"]+' | head -n 1)
-            KEY_PAIR=$(grep -A4 "${ID}" playlist/input.m3u | grep -oP 'license_key=\K[^:]+:[0-9a-f]+' | head -n 1)
+
+            # extract COOKIE (from #EXTHTTP or inline)
+            COOKIE=$(grep -A6 "${ID}" playlist/input.m3u | grep -oP '"cookie":"\K[^"]+' | head -n 1)
+            if [ -z "$COOKIE" ]; then
+              COOKIE=$(echo "$URL" | grep -oP '__hdnea__=[^&]+' | head -n 1)
+            fi
+
+            # extract KEY_PAIR
+            KEY_PAIR=$(grep -A6 "${ID}" playlist/input.m3u | grep -oP 'license_key=\K[^:]+:[0-9a-f]+' | head -n 1)
 
             echo "➡️ URL: $URL"
             echo "➡️ COOKIE: $COOKIE"
@@ -57,7 +65,7 @@ jobs:
             if [ -n "$URL" ]; then
               OUTPUT_FILE="output/${CH_NAME}.m3u8"
               echo "➡️ Processing $CH_NAME"
-              
+
               if [ -n "$KEY_PAIR" ]; then
                 DECRYPT_KEY=$(echo "$KEY_PAIR" | cut -d':' -f2)
                 ffmpeg -headers "user-agent: $USER_AGENT" \
@@ -85,7 +93,7 @@ jobs:
             fi
           done
 
-          echo "✅ Finished debug run. Check logs above."
+          echo "✅ Finished conversion run."
           set -e
 
       - name: Commit and push results
@@ -97,5 +105,5 @@ jobs:
           git reset --hard
           git pull origin main --rebase || true
           git add output/*.m3u8 output/jaupl.m3u || echo "No files to add"
-          git commit -m "Mycon Verse debug run [skip ci]" || echo "No changes to commit"
+          git commit -m "Mycon Verse auto update [skip ci]" || echo "No changes to commit"
           git push https://x-access-token:${GITHUB_TOKEN}@github.com/${{ github.repository }}.git HEAD:main
