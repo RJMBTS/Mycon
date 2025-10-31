@@ -1,0 +1,5 @@
+mkdir output
+touch output/.gitkeep
+git add output/.gitkeep
+git commit -m "Add output folder placeholder"
+git push
