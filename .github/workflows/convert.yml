@@ -1,9 +1,9 @@
-name: Mycon Verse (Debug Mode)
+name: Mycon Verse
 
 on:
-  workflow_dispatch:
   schedule:
-    - cron: "0 */6 * * *"
+    - cron: "0 */6 * * *"   # every 6 hours
+  workflow_dispatch:         # manual trigger allowed
 
 jobs:
   convert:
@@ -15,81 +15,60 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Setup environment
-        run: |
-          sudo apt-get update && sudo apt-get install -y ffmpeg
-          mkdir -p playlist output logs
-          echo "✅ Environment ready"
+      - name: Setup FFmpeg
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
 
-      - name: Download Master.m3u
+      - name: Download latest Master.m3u
         run: |
+          mkdir -p playlist output
           curl -L -o playlist/input.m3u "https://raw.githubusercontent.com/RJMBTS/Aupl/refs/heads/main/Master.m3u"
-          echo "✅ Downloaded playlist/input.m3u"
-          ls -lh playlist
+          echo "✅ Downloaded Master.m3u"
 
-      - name: Convert selected channels
+      - name: Convert selected Telugu channels
         run: |
           set +e
-          USER_AGENT="plaYtv/7.1.3 (Linux;Android 13) ygx/69.1 ExoPlayerLib/824.0"
+          USER_AGENT='plaYtv/7.1.3 (Linux;Android 13) ygx/69.1 ExoPlayerLib/824.0'
           MASTER_FILE="output/jaupl.m3u"
+
+          mkdir -p output
           echo "#EXTM3U" > "$MASTER_FILE"
 
-          CHANNELS=("Zee_Telugu" "Zee_Cinemalu" "Maa_HD" "Maa_Movies" "Maa_Music" "ZEE_TELUGU_HD" "ZEE_CINEMALU_HD")
-          echo "🎯 Target channels: ${CHANNELS[@]}"
+          CHANNELS=("Zee Telugu HD" "Zee Cinemalu HD" "Star Maa HD" "Star Maa Movies HD" "Star Maa Music")
 
-          COUNT=0
-          while IFS= read -r line; do
-            if [[ $line == http* ]]; then
-              URL=$(echo "$line" | cut -d'|' -f1)
-              COOKIE=$(echo "$line" | grep -oP 'cookie=\K[^|]+')
-              KEY_PAIR=$(grep -A3 "$URL" playlist/input.m3u | grep -oP 'license_key=\K[^ ]+')
-              CHANNEL=$(basename "$(dirname "$URL")")
+          echo "🎯 Searching for channels in Master.m3u"
+          for CH in "${CHANNELS[@]}"; do
+            echo "➡️ Checking: $CH"
+            URL=$(grep -A1 "$CH" playlist/input.m3u | tail -n1 | grep -o 'http[^ ]*')
+            if [ -n "$URL" ]; then
+              CLEAN_NAME=$(echo "$CH" | sed 's/ /_/g')
+              OUTPUT_FILE="output/${CLEAN_NAME}.m3u8"
+              echo "🎬 Converting $CH → $CLEAN_NAME.m3u8"
 
-              if [[ " ${CHANNELS[@]} " =~ " ${CHANNEL} " ]]; then
-                CLEAN_NAME=$(echo "$CHANNEL" | sed 's/_BTS//')
-                LOG_FILE="logs/${CLEAN_NAME}.log"
-                OUT_FILE="output/${CLEAN_NAME}.m3u8"
-                COUNT=$((COUNT+1))
-                echo "▶️ $CLEAN_NAME" | tee -a "$LOG_FILE"
-                echo "URL: $URL" | tee -a "$LOG_FILE"
-                echo "COOKIE: ${COOKIE:0:20}..." | tee -a "$LOG_FILE"
-                echo "KEY_PAIR: ${KEY_PAIR}" | tee -a "$LOG_FILE"
+              ffmpeg -headers "user-agent: $USER_AGENT" -i "$URL" -c copy -f hls "$OUTPUT_FILE"
 
-                if [ -n "$KEY_PAIR" ]; then
-                  ffmpeg -hide_banner -y \
-                    -headers "user-agent: $USER_AGENT" \
-                    -headers "cookie: $COOKIE" \
-                    -decryption_key "${KEY_PAIR#*:}" \
-                    -i "$URL" -c copy -f hls "$OUT_FILE" >>"$LOG_FILE" 2>&1
-                else
-                  ffmpeg -hide_banner -y \
-                    -headers "user-agent: $USER_AGENT" \
-                    -headers "cookie: $COOKIE" \
-                    -i "$URL" -c copy -f hls "$OUT_FILE" >>"$LOG_FILE" 2>&1
-                fi
-
-                if [ -s "$OUT_FILE" ]; then
-                  echo "✅ Success: $CLEAN_NAME"
-                  echo "#EXTINF:-1,${CLEAN_NAME}" >> "$MASTER_FILE"
-                  echo "https://nrtv-one.vercel.app/${CLEAN_NAME}.m3u8" >> "$MASTER_FILE"
-                else
-                  echo "❌ Failed: $CLEAN_NAME (see $LOG_FILE)"
-                fi
+              if [ $? -eq 0 ] && [ -s "$OUTPUT_FILE" ]; then
+                echo "✅ Success: $CH"
+                echo "#EXTINF:-1,$CH" >> "$MASTER_FILE"
+                echo "https://nrtv-one.vercel.app/output/${CLEAN_NAME}.m3u8" >> "$MASTER_FILE"
+              else
+                echo "⚠️ Skipped $CH (conversion error)"
+                rm -f "$OUTPUT_FILE"
               fi
+            else
+              echo "❌ Not found: $CH"
             fi
-          done < playlist/input.m3u
+          done
 
-          if [ $COUNT -eq 0 ]; then
-            echo "⚠️ No channels matched or no valid URLs found" | tee logs/empty.log
-          fi
+          echo "✅ Created jaupl.m3u (selected channels only)"
+          set -e
 
-      - name: Commit results
+      - name: Commit and push results
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          git config --global user.name "GitHub Actions"
-          git config --global user.email "actions@github.com"
-          git add output/*.m3u8 output/jaupl.m3u logs/*.log || true
-          git commit -m "Mycon Verse debug update [skip ci]" || true
-          git pull --rebase || true
-          git push https://x-access-token:${GITHUB_TOKEN}@github.com/${{ github.repository }}.git HEAD:main || true
+          git config user.name "GitHub Actions"
+          git config user.email "actions@github.com"
+          git pull --rebase
+          git add output/*.m3u8 output/jaupl.m3u || echo "No files to add"
+          git commit -m "Mycon Verse auto-update [skip ci]" || echo "No changes to commit"
+          git push https://x-access-token:${GITHUB_TOKEN}@github.com/${{ github.repository }}.git HEAD:main
