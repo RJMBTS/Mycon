@@ -10,28 +10,34 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Set up FFmpeg
+      - name: Install FFmpeg
         run: sudo apt-get update && sudo apt-get install -y ffmpeg
 
-      - name: Create output directory
-        run: mkdir -p output
+      - name: Prepare folders
+        run: |
+          mkdir -p output logs
 
       - name: Convert Zee Telugu HD (Clearkey)
         run: |
           ffmpeg \
             -headers "user-agent: Mozilla/5.0" \
-            -decryption_key 657fc8e7d533456cb0644fe03458a4b2 \
+            -decryption_keys "1ce5cd75a6ad44a38a7d1b8dbaf9c330:657fc8e7d533456cb0644fe03458a4b2" \
             -i "https://d1g8wgjurz8via.cloudfront.net/bpk-tv/Zeetelgu/default/manifest.mpd" \
-            -c copy -f hls "output/Zee_Telugu_HD.m3u8" || echo "⚠️ Conversion failed"
+            -c copy -f hls "output/Zee_Telugu_HD.m3u8" \
+            -loglevel debug > logs/ffmpeg.log 2>&1 || true
 
-      - name: Commit output
+      - name: Show FFmpeg result
+        run: |
+          echo "----- FFmpeg output -----"
+          tail -n 50 logs/ffmpeg.log || true
+          echo "--------------------------"
+
+      - name: Commit results
         run: |
           git config user.name "GitHub Actions"
           git config user.email "actions@github.com"
-          git add output/*.m3u8 || true
-          git commit -m "Add generated Zee_Telugu_HD.m3u8" || echo "No changes to commit"
-          git pull --no-rebase || echo "Pull skipped"
-          git push || echo "Push skipped"
+          git add output/*.m3u8 logs/ffmpeg.log || true
+          git commit -m "Add Zee_Telugu_HD.m3u8 + logs" || echo "No new changes"
+          git pull --no-rebase || true
+          git push || true
