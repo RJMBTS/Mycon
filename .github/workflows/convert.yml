@@ -1,9 +1,9 @@
-name: Mycon Verse (Auto Convert with Logs)
+name: Mycon Verse Safe Run
 
 on:
+  workflow_dispatch:
   schedule:
-    - cron: "0 */6 * * *"   # every 6 hours
-  workflow_dispatch:         # manual trigger allowed
+    - cron: "0 */6 * * *"
 
 jobs:
   convert:
@@ -12,76 +12,69 @@ jobs:
       contents: write
 
     steps:
-      - name: Checkout repository
+      - name: Checkout repo
         uses: actions/checkout@v4
 
-      - name: Setup FFmpeg
+      - name: Install ffmpeg
         run: sudo apt-get update && sudo apt-get install -y ffmpeg
 
-      - name: Prepare folders
+      - name: Setup folders
         run: |
-          rm -rf playlist output logs
           mkdir -p playlist output logs
 
-      - name: Download latest Master.m3u
+      - name: Download Master.m3u
         run: |
           curl -L -o playlist/input.m3u "https://raw.githubusercontent.com/RJMBTS/Aupl/refs/heads/main/Master.m3u"
-          echo "✅ Master.m3u downloaded"
 
-      - name: Convert selected channels with logging
+      - name: Convert Selected Channels
         run: |
-          USER_AGENT='plaYtv/7.1.3 (Linux;Android 13) ygx/69.1 ExoPlayerLib/824.0'
+          set +e
+          USER_AGENT="plaYtv/7.1.3 (Linux;Android 13) ygx/69.1 ExoPlayerLib/824.0"
           MASTER_FILE="output/jaupl.m3u"
           echo "#EXTM3U" > "$MASTER_FILE"
-
           CHANNELS=("Zee_Telugu" "Zee_Cinemalu" "Maa_HD" "Maa_Movies" "Maa_Music" "ZEE_TELUGU_HD" "ZEE_CINEMALU_HD")
 
           while IFS= read -r line; do
             if [[ $line == http* ]]; then
               URL=$(echo "$line" | cut -d'|' -f1)
               COOKIE=$(echo "$line" | grep -oP 'cookie=\K[^|]+')
-              KEY_PAIR=$(grep -A3 "$URL" playlist/input.m3u | grep -oP 'license_key=\K[^ ]+')
+              KEY=$(grep -A3 "$URL" playlist/input.m3u | grep -oP 'license_key=\K[^ ]+')
               CHANNEL=$(basename "$(dirname "$URL")")
-
               if [[ " ${CHANNELS[@]} " =~ " ${CHANNEL} " ]]; then
-                CLEAN_NAME=$(echo "$CHANNEL" | sed 's/_BTS//')
-                echo "🎬 Processing: $CLEAN_NAME"
-                OUTPUT_FILE="output/${CLEAN_NAME}.m3u8"
-                LOG_FILE="logs/${CLEAN_NAME}.log"
-
-                if [ -n "$KEY_PAIR" ]; then
+                NAME=$(echo "$CHANNEL" | sed 's/_BTS//')
+                echo "🎬 Processing: $NAME"
+                LOG="logs/${NAME}.log"
+                OUT="output/${NAME}.m3u8"
+                if [ -n "$KEY" ]; then
                   ffmpeg -hide_banner -y \
-                         -headers "user-agent: $USER_AGENT" \
-                         -headers "cookie: $COOKIE" \
-                         -decryption_key "${KEY_PAIR#*:}" \
-                         -i "$URL" \
-                         -c copy -f hls "$OUTPUT_FILE" >"$LOG_FILE" 2>&1 || echo "⚠️ Failed: $CLEAN_NAME"
+                    -headers "user-agent: $USER_AGENT" \
+                    -headers "cookie: $COOKIE" \
+                    -decryption_key "${KEY#*:}" \
+                    -i "$URL" -c copy -f hls "$OUT" >"$LOG" 2>&1
                 else
                   ffmpeg -hide_banner -y \
-                         -headers "user-agent: $USER_AGENT" \
-                         -headers "cookie: $COOKIE" \
-                         -i "$URL" \
-                         -c copy -f hls "$OUTPUT_FILE" >"$LOG_FILE" 2>&1 || echo "⚠️ Failed: $CLEAN_NAME"
+                    -headers "user-agent: $USER_AGENT" \
+                    -headers "cookie: $COOKIE" \
+                    -i "$URL" -c copy -f hls "$OUT" >"$LOG" 2>&1
                 fi
-
-                if [ -s "$OUTPUT_FILE" ]; then
-                  echo "✅ Success: $CLEAN_NAME"
-                  echo "#EXTINF:-1,${CLEAN_NAME}" >> "$MASTER_FILE"
-                  echo "https://nrtv-one.vercel.app/${CLEAN_NAME}.m3u8" >> "$MASTER_FILE"
+                if [ -s "$OUT" ]; then
+                  echo "#EXTINF:-1,${NAME}" >> "$MASTER_FILE"
+                  echo "https://nrtv-one.vercel.app/${NAME}.m3u8" >> "$MASTER_FILE"
+                  echo "✅ Success: $NAME"
                 else
-                  echo "❌ No output for $CLEAN_NAME — see logs/${CLEAN_NAME}.log"
+                  echo "❌ Failed: $NAME (check $LOG)"
                 fi
               fi
             fi
           done < playlist/input.m3u
 
-      - name: Commit and Push results + logs
+      - name: Commit and push results
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           git config --global user.name "GitHub Actions"
           git config --global user.email "actions@github.com"
-          git add output/*.m3u* logs/*.log || echo "Nothing to add"
-          git commit -m "Mycon Verse auto-update with logs [skip ci]" || echo "No changes"
-          git pull --rebase || echo "Rebase skipped"
-          git push https://x-access-token:${GITHUB_TOKEN}@github.com/${{ github.repository }}.git HEAD:main || echo "Push failed"
+          git add output/*.m3u8 output/jaupl.m3u logs/*.log || true
+          git commit -m "Mycon Verse update [skip ci]" || true
+          git pull --rebase || true
+          git push https://x-access-token:${GITHUB_TOKEN}@github.com/${{ github.repository }}.git HEAD:main || true
