@@ -1,5 +1,4 @@
-name: Auto Convert JioTV Playlist
-
+name: Mycon Verse
 on:
   schedule:
     - cron: "0 */6 * * *"   # Every 6 hours
