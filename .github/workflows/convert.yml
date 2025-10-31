@@ -3,7 +3,7 @@ name: Mycon Verse
 on:
   schedule:
     - cron: "0 */6 * * *"   # every 6 hours
-  workflow_dispatch:         # manual trigger allowed
+  workflow_dispatch:
 
 jobs:
   convert:
@@ -12,64 +12,59 @@ jobs:
       contents: write
 
     steps:
-      - name: Checkout repository
+      - name: Checkout repo
         uses: actions/checkout@v4
 
       - name: Setup FFmpeg
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y ffmpeg
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
 
-      - name: Download latest Master.m3u
+      - name: Prepare folders and download Master.m3u
         run: |
           mkdir -p playlist output
-          curl -L -o playlist/input.m3u "https://raw.githubusercontent.com/RJMBTS/Aupl/refs/heads/main/Master.m3u"
+          curl -L -o playlist/input.m3u "https://raw.githubusercontent.com/RJMBTS/Aupl/main/Master.m3u"
 
       - name: Convert selected channels
         run: |
           set +e
-          USER_AGENT='plaYtv/7.1.3 (Linux;Android 13) ygx/69.1 ExoPlayerLib/824.0'
+          USER_AGENT="plaYtv/7.1.5 (Linux;Android 15) ExoPlayerLib/2.11.6 YGX/69.69.69.69"
           MASTER_FILE="output/jaupl.m3u"
 
           echo "#EXTM3U" > "$MASTER_FILE"
 
-          # Channel list to include
-          CHANNELS=("Zee_Telugu" "Zee_Cinemalu" "Maa_HD" "Maa_Movies" "Maa_Music" "ZEE_TELUGU_HD" "ZEE_CINEMALU_HD")
+          CHANNELS=("Zee_Telugu" "Zee_Cinemalu" "ZEE_TELUGU_HD" "ZEE_CINEMALU_HD" "Maa_HD" "Maa_Movies" "Maa_Music")
 
-          # Clean up old output
-          mkdir -p output
-          rm -f output/*.m3u8 || true
+          # Extract and process each channel block
+          awk '/#EXTINF/{f=1; filename="block_"++i".txt"} f{print>filename} /index.mpd/{f=0}' playlist/input.m3u
 
-          while IFS= read -r line; do
-            if [[ $line == http* ]]; then
-              URL=$(echo "$line" | cut -d'|' -f1)
-              COOKIE=$(echo "$line" | grep -oP 'cookie=\K[^|]+')
-              CHANNEL=$(basename "$(dirname "$URL")")
+          for block in block_*.txt; do
+            URL=$(grep -Eo 'https://[^ ]+index\.mpd[^ ]*' "$block" | head -1)
+            COOKIE=$(grep -Eo '"cookie":"[^"]+"' "$block" | cut -d':' -f2- | tr -d '"')
+            KEY_PAIR=$(grep -Eo 'license_key=[^"]+' "$block" | cut -d'=' -f2)
+            CHANNEL=$(basename "$(dirname "$URL")" | sed 's/_BTS//')
 
-              if [[ " ${CHANNELS[@]} " =~ " ${CHANNEL} " ]]; then
-                CLEAN_NAME=$(echo "$CHANNEL" | sed 's/_BTS//')
-                echo "🎬 Processing: $CLEAN_NAME"
+            if [[ " ${CHANNELS[@]} " =~ " ${CHANNEL} " ]]; then
+              echo "🎬 Converting: $CHANNEL"
+              OUTPUT_FILE="output/${CHANNEL}.m3u8"
 
-                OUTPUT_FILE="output/${CLEAN_NAME}.m3u8"
+              ffmpeg -headers "user-agent: $USER_AGENT" \
+                     -headers "cookie: $COOKIE" \
+                     -decryption_key "$(echo $KEY_PAIR | cut -d':' -f2)" \
+                     -i "$URL" \
+                     -c copy -f hls "$OUTPUT_FILE"
 
-                ffmpeg -headers "user-agent: $USER_AGENT" \
-                       -headers "cookie: $COOKIE" \
-                       -i "$URL" \
-                       -c copy -f hls "$OUTPUT_FILE"
-
-                if [ $? -eq 0 ] && [ -s "$OUTPUT_FILE" ]; then
-                  echo "✅ Success: $CLEAN_NAME"
-                  echo "#EXTINF:-1,${CLEAN_NAME}" >> "$MASTER_FILE"
-                  echo "https://nrtv-one.vercel.app/${CLEAN_NAME}.m3u8" >> "$MASTER_FILE"
-                else
-                  echo "⚠️ Skipped $CLEAN_NAME (conversion error)"
-                  rm -f "$OUTPUT_FILE"
-                fi
+              if [ $? -eq 0 ] && [ -s "$OUTPUT_FILE" ]; then
+                echo "✅ Success: $CHANNEL"
+                echo "#EXTINF:-1,${CHANNEL}" >> "$MASTER_FILE"
+                echo "https://nrtv-one.vercel.app/${CHANNEL}.m3u8" >> "$MASTER_FILE"
+              else
+                echo "⚠️ Skipped $CHANNEL (conversion error)"
+                rm -f "$OUTPUT_FILE"
               fi
             fi
-          done < playlist/input.m3u
+          done
 
-          echo "✅ Created jaupl.m3u (selected channels only)"
+          rm block_*.txt 2>/dev/null || true
+          echo "✅ Created jaupl.m3u with selected channels"
           set -e
 
       - name: Commit and push results
@@ -78,8 +73,7 @@ jobs:
         run: |
           git config user.name "GitHub Actions"
           git config user.email "actions@github.com"
-          git fetch origin main
-          git pull --rebase origin main || true
-          git add output/* || echo "No files to add"
-          git commit -m "Mycon Verse update [skip ci]" || echo "No changes to commit"
-          git push https://x-access-token:${GITHUB_TOKEN}@github.com/${{ github.repository }}.git HEAD:main || echo "Push skipped"
+          git add output/*.m3u8 output/jaupl.m3u || echo "No files to add"
+          git commit -m "Mycon Verse auto-update [skip ci]" || echo "No changes to commit"
+          git pull --rebase
+          git push https://x-access-token:${GITHUB_TOKEN}@github.com/${{ github.repository }}.git HEAD:main
