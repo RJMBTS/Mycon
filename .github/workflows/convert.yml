@@ -1,43 +1,66 @@
-name: Mycon Verse
+name: Mycon Verse Convert
 
 on:
   workflow_dispatch:
+  schedule:
+    - cron: "0 */6 * * *" # Runs every 6 hours
 
 jobs:
   convert:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Install FFmpeg
-        run: sudo apt-get update && sudo apt-get install -y ffmpeg
-
-      - name: Prepare folders
+      - name: Setup FFmpeg
         run: |
-          mkdir -p output logs
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
 
-      - name: Convert Zee Telugu HD (Clearkey)
+      - name: Create folders
+        run: mkdir -p playlist output logs
+
+      - name: Convert Zee Telugu HD to .m3u8
         run: |
+          echo "🎬 Starting Zee Telugu HD conversion"
+          USER_AGENT="Mozilla/5.0"
+          URL="https://d1g8wgjurz8via.cloudfront.net/bpk-tv/Zeetelgu/default/manifest.mpd"
+          KEY="657fc8e7d533456cb0644fe03458a4b2"
+
+          echo "➡️ URL: $URL"
+          echo "➡️ Decryption Key: $KEY"
+
+          mkdir -p output
+
           ffmpeg \
-            -headers "user-agent: Mozilla/5.0" \
-            -decryption_keys "1ce5cd75a6ad44a38a7d1b8dbaf9c330:657fc8e7d533456cb0644fe03458a4b2" \
-            -i "https://d1g8wgjurz8via.cloudfront.net/bpk-tv/Zeetelgu/default/manifest.mpd" \
+            -headers "user-agent: ${USER_AGENT}" \
+            -decryption_key ${KEY} \
+            -i "${URL}" \
             -c copy -f hls "output/Zee_Telugu_HD.m3u8" \
-            -loglevel debug > logs/ffmpeg.log 2>&1 || true
+            -loglevel info > logs/ffmpeg.log 2>&1 || true
 
-      - name: Show FFmpeg result
-        run: |
-          echo "----- FFmpeg output -----"
-          tail -n 50 logs/ffmpeg.log || true
-          echo "--------------------------"
+          echo "✅ Conversion finished. Checking result..."
+          if [ -s output/Zee_Telugu_HD.m3u8 ]; then
+            echo "✅ Zee_Telugu_HD.m3u8 generated successfully"
+          else
+            echo "❌ Conversion failed. Check logs/ffmpeg.log for details"
+          fi
 
-      - name: Commit results
+      - name: Commit and push results
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           git config user.name "GitHub Actions"
           git config user.email "actions@github.com"
-          git add output/*.m3u8 logs/ffmpeg.log || true
-          git commit -m "Add Zee_Telugu_HD.m3u8 + logs" || echo "No new changes"
-          git pull --no-rebase || true
-          git push || true
+
+          # Add and commit generated files
+          git add output/*.m3u8 logs/*.log || echo "No files to add"
+          git commit -m "Auto-update Zee Telugu HD .m3u8 [skip ci]" || echo "No changes to commit"
+
+          # Always pull latest before pushing
+          git pull --rebase origin main || echo "No rebase needed"
+          git push https://x-access-token:${GITHUB_TOKEN}@github.com/${{ github.repository }}.git HEAD:main || echo "Push skipped"
+
