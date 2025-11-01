@@ -3,7 +3,7 @@ name: Mycon Verse Convert
 on:
   workflow_dispatch:
   schedule:
-    - cron: "0 */6 * * *" # every 6 hours
+    - cron: "0 */6 * * *"  # every 6 hours
 
 jobs:
   convert:
@@ -23,9 +23,10 @@ jobs:
       - name: Create folders
         run: mkdir -p playlist output logs
 
-      - name: Repack DASH to HLS (.m3u8)
+      - name: Convert Zee Telugu HD (Repack .mpd → .m3u8)
         run: |
-          echo "🎬 Starting repack from .mpd to .m3u8"
+          set -e
+          echo "🎬 Starting repack for Zee Telugu HD..."
 
           USER_AGENT="Mozilla/5.0"
           URL="https://d1g8wgjurz8via.cloudfront.net/bpk-tv/Zeetelgu/default/manifest.mpd"
@@ -35,25 +36,24 @@ jobs:
           echo "➡️ URL: $URL"
           echo "➡️ Using decryption key: $KEY"
 
-          # Repack .mpd (MPEG-DASH) to .m3u8 (HLS)
+          # Run ffmpeg and log output
           ffmpeg \
             -headers "user-agent: ${USER_AGENT}" \
             -decryption_key ${KEY} \
             -i "${URL}" \
-            -map 0:v:0 -map 0:a:0 \
-            -c:v copy -c:a copy \
+            -map 0 \
+            -c copy \
             -f hls \
             -hls_time 6 \
             -hls_playlist_type vod \
             -hls_segment_filename "output/Zee_Telugu_HD_%03d.ts" \
-            "$OUTPUT_FILE" \
-            -loglevel info > logs/ffmpeg_repack.log 2>&1 || true
+            "$OUTPUT_FILE" > logs/Zee_Telugu_HD.log 2>&1 || true
 
           echo "✅ Checking output..."
           if [ -s "$OUTPUT_FILE" ]; then
-            echo "✅ HLS file created: $OUTPUT_FILE"
+            echo "✅ Created $OUTPUT_FILE successfully"
           else
-            echo "❌ Conversion failed. Check logs/ffmpeg_repack.log for details."
+            echo "❌ Conversion failed. Check logs/Zee_Telugu_HD.log"
           fi
 
       - name: Commit and push results
@@ -64,7 +64,7 @@ jobs:
           git config user.email "actions@github.com"
 
           git add output/*.m3u8 output/*.ts logs/*.log || echo "No files to add"
-          git commit -m "Repacked Zee Telugu HD to HLS (.m3u8) [skip ci]" || echo "No changes to commit"
+          git commit -m "Auto-converted Zee Telugu HD → .m3u8 [skip ci]" || echo "No changes to commit"
 
           git pull --rebase origin main || echo "No rebase needed"
           git push https://x-access-token:${GITHUB_TOKEN}@github.com/${{ github.repository }}.git HEAD:main || echo "Push skipped"
